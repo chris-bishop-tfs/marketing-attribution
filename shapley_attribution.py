@@ -293,6 +293,9 @@ window_map = (
 # Convert player columns into boolean values
 player_ids = window_map.select('player_id').dropDuplicates().toPandas()['player_id'].tolist()
 
+# Sort so I can stop ripping my hair out
+player_ids.sort()
+
 # Now that we have the windows mapped, we need to pivot into a wide data frame for attribution
 attribution_window = (
   window_map
@@ -514,6 +517,24 @@ class Shapley(Valuator):
       )
     )
     
+    # Add back in journey sets
+    journeys_df = (
+      journeys_df
+      .join(
+        (
+          self
+          .spark
+          .createDataFrame(journeys_pd)
+          .select(
+            'journey_id',
+            'journey'
+          )
+        ),
+        on='journey_id',
+        how='left'
+      )
+    )
+
     # Convert to boolean values
     for p in self.player_ids:
       journeys_df = (
@@ -534,6 +555,7 @@ class Shapley(Valuator):
       .select(
         'journey_id',
         'journey_name',
+        'journey',
         'cardinality',
         *self.player_ids
       )
@@ -557,7 +579,7 @@ class Shapley(Valuator):
 
     return cardinality_expression
 
-  def build_store_journeys(self, *largs, **kwargs):
+  def update_journeys(self, *largs, **kwargs):
     
     # Build journeys_df
     journeys_df = self.build_journeys(*largs, **kwargs)
@@ -565,28 +587,74 @@ class Shapley(Valuator):
     # Assign to attribute
     self.journeys = journeys_df.orderBy('journey_id')
 
-#   def build_subsets(self):
+  def build_subsets(self):
     
-#     journey_subsets = (
-#       self
-#       .journey
-#       .select(
-#         'journey_id',
-        
-#       )
-#     )
+    journey_subsets = (
+      self.journeys.select(
+        'journey_id',
+        # Needed for subset creation
+        'cardinality',
+        'journey'
+      ).alias('a')
+      .join(
+        self.journeys.select(
+          'journey_id',
+          'cardinality',
+          'journey'
+        ).alias('b'),
+        # This will lead to some incorrect mapping, but we'll fix that below
+        on=(
+          (sf.col('b.cardinality') < sf.col('a.cardinality')) |
+          (sf.col('a.journey_id') == sf.col('b.journey_id'))
+        ),
+        how='left'
+      )
+      # Compute shared journey set
+      .withColumn(
+        '_shared_journey',
+        sf.array_intersect(
+          sf.col('a.journey'),
+          sf.col('b.journey')
+        )
+      )
+      # How many shared touched points?
+      .withColumn(
+        '_shared_cardinality',
+        sf.size(sf.col('_shared_journey'))
+      )
+      # Focus only on those with a shared journey subset
+      .filter(
+        sf.col('_shared_cardinality') == sf.col('b.cardinality')
+      )
+      .select(
+        'a.journey_id',
+        sf.col('b.journey_id').alias('subset_id')
+      )
+    )
+    
+    return journey_subsets
+
+  def update_subsets(self, *largs, **kwargs):
+    """
+    Figure out how each journey relates to other journeys.
+    This is critical to how journeys (and players) are evaluated.
+    """
+
+    journey_subsets = self.build_subsets()
+    
+    self.journey_subsets = journey_subsets
+
 # Random tests
 v = Shapley(player_ids)
 # v._cardinality_expression
 
-v.build_store_journeys()
+v.update_journeys()
+v.update_subsets()
 
-display(v.journeys)
+display(v.journey_subsets)
+# display(v.journeys)
 
-
-# COMMAND ----------
-
-
+# display(v.update_subsets())
 
 # COMMAND ----------
 

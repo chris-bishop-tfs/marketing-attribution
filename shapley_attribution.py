@@ -7,6 +7,24 @@ from pyspark.sql.window import Window
 from pyspark.sql.types import BooleanType, DateType
 from data_io import build_connection
 from dateutil.relativedelta import relativedelta
+from functools import reduce
+from pyspark.sql import DataFrame
+
+def union_all(*data_frames):
+  """
+  Union 2 or more PySpark data frames
+  
+  Args:
+    data_frames (list)
+  """
+
+  all_data = reduce(
+    DataFrame.unionAll,
+    data_frames
+  )
+
+  return all_data
+
 # Create touchpoints 
 
 # Let's start with the transaction logs
@@ -640,10 +658,244 @@ class Shapley(Valuator):
     This is critical to how journeys (and players) are evaluated.
     """
 
-    journey_subsets = self.build_subsets()
+    journey_subsets = self.build_subsets(*largs, **kwargs)
     
     self.journey_subsets = journey_subsets
 
+  @property
+  def _append_journeys_exp(self):
+    
+    for i, p in enumerate(self.player_ids):
+      
+      _c = (sf.col(f'a.{p}') == sf.col(f'b.{p}'))
+      
+      if i == 0:
+        append_expression = _c
+      else:
+        append_expression = append_expression & (_c)
+    
+    return append_expression
+
+#   @classmethod
+  def append_journeys(
+    self,
+    data,
+    *largs,
+    **kwargs
+  ):
+    """
+    Append journeys to external data set.
+    
+    External data set must have appropriately labeled 
+    """
+    
+    data_enriched = (
+      data.alias('a')
+      .join(
+        self.journeys.alias('b'),
+        on=self._append_journeys_exp,
+        how='left'
+      )
+    )
+    
+    return data_enriched
+
+  def update_journey_value(
+    self,
+    data,
+    val_col,
+    *largs,
+    **kwargs
+  ):
+    """
+    Compute value of each journey type
+    """
+    
+    # Add journey IDs
+    data = self.append_journeys(data)
+    
+    # Compute value per journey
+    journey_value = (
+      data
+      .groupBy(
+        'journey_id'
+      )
+      .agg(
+        sf.sum(val_col).alias(val_col)
+      )
+      # Convert value to a proportion
+      .withColumn(
+        'total_value',
+        sf.sum(val_col).over(
+          Window()
+          .rowsBetween(
+            Window.unboundedPreceding,
+            Window.unboundedFollowing
+          )
+        )
+      )
+      .withColumn(
+        val_col,
+        sf.col(val_col) / sf.col('total_value')
+      )
+      .select(
+        'journey_id',
+        val_col
+      )
+    )
+
+    # Update journey_value
+    self.journey_value = journey_value
+
+    return None
+  
+  def update_coalition_value(
+    self,
+    data,
+    val_col,
+    *largs,
+    **kwargs
+  ):
+    """
+    Compute value for each coalition set
+    """
+    
+    # Update subsets
+    #  This is required for coalition set computations
+    self.update_subsets()
+
+    # Update journey value
+    self.update_journey_value(data, val_col, *largs, **kwargs)
+    
+    coalition_value = (
+      self.journey_value.alias('a')
+      .join(
+        self.journey_subsets.alias('b'),
+        on=(
+          (sf.col('a.journey_id') == sf.col('b.subset_id'))
+        ),
+        how='right'
+      )
+      .groupBy(
+        'b.journey_id'
+      )
+      .agg(
+        sf.sum(val_col).alias(val_col)
+      )
+    )
+    
+    self.coalition_value = coalition_value
+    
+    return None
+
+  def update_player_value(
+    self,
+    data,
+    val_col,
+    player_id,
+    *largs,
+    **kwargs
+  ):
+    
+    # Update coalition values
+    self.update_coalition_value(data, val_col, *largs, **kwargs)
+    
+    # Need to add in coalition value metrics, etc.
+    journeys_enriched = (
+      self
+      .journeys
+      .join(
+        self.coalition_value,
+        on='journey_id',
+        how='left'
+      )
+    )
+
+    # We need to find all journeys that include the player of interest
+    player_journeys = (
+      journeys_enriched
+      # These are boolean values
+      .filter(
+        sf.col(player_id)
+      )
+      # The value column here will be the total value col
+      .withColumn(
+        f'{val_col}_total',
+        sf.col(val_col)
+      )
+    )
+
+    reference_journeys = (
+      journeys_enriched
+      .select(
+        *self.player_ids,
+        sf.col('journey_id').alias('journey_id_ref'),
+        sf.col(val_col).alias(f'{val_col}_ref')
+      )
+      # We need S - player_id sets
+      .filter(
+        ~sf.col(player_id)
+      )
+      # We'll be joining below, so drop the player column to avoid duplicate names
+      .drop(player_id)
+    )
+    
+    # Combine
+    marginal_value = (
+      player_journeys
+      .join(
+        reference_journeys,
+        # We join based on the journey SUBSET
+        on=(
+          list(
+            set(self.player_ids) - {player_id}
+          )
+        ),
+        how='left'
+      )
+      # If the reference value is missing, then it's 0
+      .fillna(
+        0,
+        subset=f'{val_col}_ref'
+      )
+      .withColumn(
+        f'{val_col}_margin',
+        sf.col(f'{val_col}_total') - sf.col(f'{val_col}_ref')
+      )
+      # Cardinality of player set (|N|)
+      .withColumn(
+        '_n',
+        sf.lit(len(self.player_ids))
+      )
+      .withColumn(
+        '_s',
+        # Exclude the player under consideration
+        # Recall that 'S' is S - player
+        sf.col('cardinality') - sf.lit(1)
+      )
+      # Compute weight so all contributions sum to 1
+      .withColumn(
+        'weight',
+        (
+          sf.factorial(sf.col('_s')) * sf.factorial(sf.col('_n') - sf.col('_s') - 1)
+        ) / (sf.factorial(sf.col('_n')))
+      )
+      .withColumn(
+        f'{val_col}_margin_w',
+        sf.col(f'{val_col}_margin') * sf.col('weight')
+      )
+      .agg(
+        sf.sum(sf.col(f'{val_col}_margin_w')).alias(f'{val_col}_margin_w')
+      )
+      # Add a player_id column
+      .withColumn(
+        'player_id',
+        sf.lit(player_id)
+      )
+    )
+    
+    return marginal_value
+    
 # Random tests
 v = Shapley(player_ids)
 # v._cardinality_expression
@@ -651,130 +903,76 @@ v = Shapley(player_ids)
 v.update_journeys()
 v.update_subsets()
 
-display(v.journey_subsets)
-# display(v.journeys)
+# display(v.journey_subsets)
+# print(v._append_journeys_exp)
+
+
+display(v.journeys)
+
+# display(v.append_journeys(master_attribution))
+# v.update_journey_value(master_attribution, 'revenue_usd')
+# display(v.journey_value.orderBy('journey_id'))
+
+# v.update_coalition_value(master_attribution, 'revenue_usd')
+
+# display(v.coalition_value)
+# value = v.update_player_value(master_attribution, 'revenue_usd', 'A').cache()
+values = [
+  v.update_player_value(master_attribution, 'revenue_usd', p) for p in player_ids
+]
+
+values = union_all(*values)
+
+display(
+  values.orderBy('player_id')
+)
+# display(v.compute_value(master_attribution, 'revenue_usd').orderBy('journey_id'))
 
 # display(v.update_subsets())
 
 # COMMAND ----------
 
-def compute_conversion(data):
-# def compute_value(data):
-  """
-  Compute the coalition-specific conversion rates.
-  These will later be used to estimate the "worth" of
-  each journey and, ultimately, the marginal value of
-  each channel.
-  
-  Note that the *denominator* for each channel is the *total
-  number of opportunites*. (Pool opportunities over channels).
+display(values.agg(sf.sum('revenue_usd_margin_w')))
 
-  Args:
-    data: pass in the equivalent of master_attribution
-    group_by: coalition column name ('coalition_id')
-  
-  Returns:
-    group_conversion: conversion rates per group (e.g., coalition)
-  """
+# COMMAND ----------
 
-  # Conversion here is DIFFERENT than value in the Shapley sense
-  # But we need conversions to get to worth
-  coalition_conversion = (
-    data
-    # XXX
-    # Bishop isn't 100% sure NULLs should be here
-    # XXX Bishop is now sure that NULLs are here and
-    # are expected - but they should be filetered out
-    # elsewhere.
-    .filter(
-      sf.col('coalition_id').isNotNull()
-    )
-    .withColumn(
-      '_email_order',
-      sf.when(
-        sf.col('is_order'),
-        sf.col('email_uid')
-      )
-    )
-    # We'll estimate conversion rates per coalition and per group_by
-    .groupby(
-      'coalition_id',
-      *group_by
-    )
-    .agg(
-#       sf.countDistinct('_email_order').alias('n_orders'),
-#       sf.countDistinct('email_uid').alias('n_opportunities')
-      sf.sum(sf.col('is_order').cast('integer')).alias('n_orders'),
-      sf.count('*').alias('n_opportunities'),
-      # Also want to aggregate revenue (what we care about most directly)
-      sf.sum('revenue').alias('revenue')
-    )
-    .withColumn(
-      'total_opportunities',
-      sf.sum('n_opportunities').over(
-        Window()
-        .partitionBy(
-          *group_by
-        )
-        .rowsBetween(
-          Window.unboundedPreceding,
-          Window.unboundedFollowing
-        )
-      )
-    )
-    .withColumn(
-      'total_orders',
-      sf.sum('n_orders').over(
-        Window()
-        .partitionBy(
-          *group_by
-        )
-        .rowsBetween(
-          Window.unboundedPreceding,
-          Window.unboundedFollowing
-        )
-      )
-    )
-    .withColumn(
-      'total_revenue',
-      sf.sum('revenue').over(
-        Window()
-        .partitionBy(
-          *group_by
-        )
-        .rowsBetween(
-          Window.unboundedPreceding,
-          Window.unboundedFollowing
-        )
-      )
-    )
-    # This is counter intuitive, but we want the proportion
-    # of VALUE in each cohort.
-    #
-    # XXX The denominator here needs more thought. Why shouldn't
-    # it be `total_opportunities`
-    .withColumn(
-      'p_conversion',
-#       sf.col('n_orders') / sf.col('total_orders')
-      sf.col('n_orders')/ sf.col('total_opportunities')
-    )
-    # Compute proportion of revenue as well
-    .withColumn(
-      'p_revenue',
-      sf.col('revenue') / sf.col('total_revenue')
-    )
-#     .withColumn(
-#       'p_conversion',
-#       sf.col('n_orders') / sf.col('n_customers')
-#     )
-    # Need coalition information
-    # master_coalition won't change, so we'll just use whatever is in scope here
-#     .join(
-#       master_coalition,
-#       on='coalition_id',
-#       how='left'
-#     )
-  ).cache()
+journey_value = v.journey_value
+journeys = v.journeys
+
+master_journey = (
+  journeys
+  .join(
+    journey_value,
+    on='journey_id',
+    how='left'
+  )
+).cache()
+
+coalition_value = (
+  v.coalition_value
+).cache()
+
+master_coalition = (
+  master_journey
+  .join(
+    coalition_value.withColumnRenamed('revenue_usd', 'coalition_val'),
+    on='journey_id',
+    how='left'
+  )
+  
+).cache()
+
+
+display(master_coalition)
+
+# COMMAND ----------
+
+display(value)
+
+# COMMAND ----------
+
+n = len(player_ids)
+
 
 # COMMAND ----------
 

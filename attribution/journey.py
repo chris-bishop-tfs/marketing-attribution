@@ -1,25 +1,31 @@
 
 """
-Journey specifications
+Each Respondent (Member) is exposed to a series of one
+or more impressions. Together, the Respondent and their
+associated impressions comprise a Journey.
+
+Journeys will form one of the base objects used in
+subsequent valuation.
 """
 import abc
-from attr import attrs, attrib
 from itertools import combinations
+from numbers import Number
+from attr import define
 import pandas as pd
 from .builder import BaseBuilder
 
 
-@attrs
+@define
 class Journey(abc.ABC):
   """
   Individual journey, including multiple touch points
   """
 
   # Treatment order
-  impressions = attrib()
+  impressions: tuple
 
   # Total value of journey (e.g., sales made, conversions, etc.)
-  value = attrib()
+  value: Number
 
   @property
   def n_impressions(self):

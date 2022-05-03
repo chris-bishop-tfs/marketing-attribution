@@ -2,7 +2,7 @@
 Audience is comprised of one or more respondents.
 """
 import abc
-from attr import attrs, attrib
+from attr import define, field, attrs, attrib
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as sf
 from pyspark.sql.window import Window
@@ -12,13 +12,14 @@ from .builder import BaseBuilder
 from .journey import build_journey
 
 
-@attrs
+@define
 class Member(abc.ABC):
   """
-  Respondees include an identifier and a journey
+  Base class used to create respondents and the like
+  
   """
 
-  identifier = attrib()
+  identifier: str
 
   @abc.abstractmethod
   def to_pandas(self):
@@ -31,10 +32,17 @@ class Member(abc.ABC):
     pass
 
 
-@attrs
+@define
 class Respondent(Member):
+  """
+  Respondents comprised of an identifier and a joureny.
 
-  journey = attrib()
+  Journeys are perhaps best understood in the context of
+  a marketing nurturing campaign. A journey is synonymous
+  with the order of treament.
+  """
+
+  journey: tuple
 
   def to_pandas(self, *largs, **kwargs):
     
@@ -70,15 +78,15 @@ class Respondent(Member):
     return data
     
 
-@attrs
+@define
 class Cohort(abc.ABC):
   """
-  We'll use different kinds of "cohorts" (collections),
-  so create a base class and build on top of it.
+  Bishop needed a way to organize a collection of members.
+  A "cohort" is the start of such collections.
   """
 
-  # Tuple of members
-  members = attrib()
+  # A tuple of members
+  members: tuple
 
   @abc.abstractmethod
   def to_pandas(self):
@@ -91,9 +99,10 @@ class Cohort(abc.ABC):
     raise NotImplemented
   
 
+@define
 class Audience(Cohort):
   """
-  Cohort of respondents
+  An audience is a cohort of "treated" respondents.
   """
 
   def _get_treatments(self):
@@ -211,6 +220,12 @@ class DicttoAudience(object):
 
 class JSONtoAudience(object):
   """
+  Convert JSON to an audience.
+
+  Each JSON entry contains:
+    - identifier: respondent ID
+    - impressions: tuple of impressions
+    - value: value of those impressions
   """
 
   def build(self, data, *largs, **kwargs):
@@ -243,7 +258,10 @@ class JSONtoAudience(object):
 
 class AudienceBuilder(BaseBuilder):
   """
-  Base audience builder
+  We'll need to build audiences from various data types.
+  This builder will identify the correct builder, based
+  on the type of data provided, and return a properly
+  instantiated Audience object.
   """
 
   def build(self, data, *largs, **kwargs):
@@ -263,6 +281,8 @@ class AudienceBuilder(BaseBuilder):
 
     return audience
 
+# Instantiate an audience builder and add supported
+# data formats/associated builders
 audience_builder = AudienceBuilder()
 audience_builder.register(('dict', ), DicttoAudience())
 audience_builder.register(('list', ), JSONtoAudience())

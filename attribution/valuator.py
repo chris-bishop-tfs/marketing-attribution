@@ -2,14 +2,16 @@
 Base classes required for attribution
 """
 import abc
-from attr import attrs, attrib
+from numbers import Number
+from attr import define
 import pyspark.sql.functions as sf
-from .audience import build_audience
+from pyspark.sql import DataFrame
+from .audience import build_audience, Audience
 from .builder import BaseBuilder
 from .journey import build_journey_set
 from .utils import union_all
 
-@attrs
+@define
 class Valuator(abc.ABC):
   """
   """
@@ -17,7 +19,8 @@ class Valuator(abc.ABC):
   # Valuation is done based on an audience
   # Recall that an audience is a group of journeys
   # with variable assigned value
-  audience = attrib()
+  # audience = attrib()
+  audience: Audience
 
   @abc.abstractmethod
   def valuate_treatments(self) -> dict:
@@ -45,9 +48,10 @@ class Valuator(abc.ABC):
     return value
 
 
-@attrs
+@define
 class LastTouchValuator(Valuator):
   """
+  Full value alloted to most recent impression
   """
 
   def valuate_treatments(self):
@@ -70,9 +74,10 @@ class LastTouchValuator(Valuator):
     return treatment_value
 
 
-@attrs
+@define
 class FirstTouchValuator(Valuator):
   """
+  Full value alloted to first impression
   """
 
   def valuate_treatments(self):
@@ -94,24 +99,24 @@ class FirstTouchValuator(Valuator):
     
     return treatment_value
 
-@attrs
+@define
 class ShapleyValuator(object):
   """
   This valuator will break the standard valuator mold a bit
   """
 
-  journey_summary = attrib()
-  journey_map = attrib()
+  journey_summary:  DataFrame
+  journey_map: DataFrame
 
   # Pass in treatment identifiers
-  treatments = attrib()
+  treatments: tuple
 
   def _compute_worth(
     self,
-    journey_summary,
-    journey_map,
-    val_col='value'
-  ):
+    journey_summary: DataFrame,
+    journey_map: DataFrame,
+    val_col: str='value'
+  ) -> DataFrame:
     """
     Compute worth of journeys as a total of itself and
     all possible "sub journeys"
@@ -140,9 +145,9 @@ class ShapleyValuator(object):
 
   def _valuate_treatment(
     self,
-    treatment,
-    val_col='value'
-  ):
+    treatment: str,
+    val_col: str='value'
+  ) -> Number:
     """
     Valuate a single treatment type
     """
@@ -276,15 +281,15 @@ class ShapleyValuator(object):
     return treatment_values
 
 
-@attrs
+@define
 class AudiencetoShapley(BaseBuilder):
   """
   We need to instantiate a Shapley
   """
 
-  audience = attrib()
+  audience: Audience
 
-  def build(self):
+  def build(self) -> ShapleyValuator:
     """
     Convert an audience to appropriate inputs for Shapley
     """
@@ -335,9 +340,9 @@ class AudiencetoShapley(BaseBuilder):
 
   def _summarize_journeys(
     self,
-    attribution_data,
-    journey_set
-  ):
+    attribution_data: DataFrame,
+    journey_set: DataFrame
+  ) -> DataFrame:
     """
     Get value by journey_id
     """
@@ -395,7 +400,7 @@ class AudiencetoShapley(BaseBuilder):
 
     return cardinality_expression
 
-  def _build_journey_set(self):
+  def _build_journey_set(self) -> DataFrame:
     """
     Build out possible journey sets.
     """
@@ -447,7 +452,7 @@ class AudiencetoShapley(BaseBuilder):
 
     return journey_set
 
-  def _build_journey_map(self, *largs, **kwargs):
+  def _build_journey_map(self, *largs, **kwargs) -> DataFrame:
     """
     Build journey-to-journey map for valuation purposes
     """
@@ -532,10 +537,10 @@ class AudiencetoShapley(BaseBuilder):
 
   def append_journey_id(
     self,
-    data,
+    data: DataFrame,
     *largs,
     **kwargs
-  ):
+  ) -> DataFrame:
     """
     Append journeys to external data set.
 
@@ -559,20 +564,6 @@ class AudiencetoShapley(BaseBuilder):
 
     return data_enriched
 
-  def _valuate_treatment(self, treatment):
-    """
-    Valuate individual treatment
-    """
-
-    pass
-
-  def valuate_treatments(self):
-    """
-    Valuate all the treatments
-    """
-
-    pass
-
 
 class AudiencetoValuator(BaseBuilder):
   """
@@ -580,8 +571,8 @@ class AudiencetoValuator(BaseBuilder):
 
   def build(
     self,
-    audience,
-    valuator_type,
+    audience: Audience,
+    valuator_type: str,
     *largs,
     **kwargs
   ):
@@ -591,12 +582,17 @@ class AudiencetoValuator(BaseBuilder):
 
     if valuator_type == 'first_touch':
 
-      valuator = FirstTouch(audience, *largs, **kwargs)
+      valuator = FirstTouchValuator(audience, *largs, **kwargs)
     
     elif valuator_type == 'last_touch':
 
-      valuator = LastTouch(audience, *largs, **kwargs)
+      valuator = LastTouchValuator(audience, *largs, **kwargs)
     
+    elif valuator_type == 'shapley':
+
+      # Takes a little extra work to get the Shapley valuator
+      valuator = AudiencetoShapley(audience).build()
+
     else:
 
       raise NotImplemented

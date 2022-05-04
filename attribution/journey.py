@@ -141,11 +141,11 @@ journey_builder = JourneyBuilder()
 journey_builder.register(('journey', ), Journey)
 
 def build_journey(
-  impressions,
-  value,
+  impressions: tuple,
+  value: Number,
   *largs,
   **kwargs
-):
+) -> Journey:
   """
   Simplest journey build possible is just a list of impressions
   """
@@ -159,12 +159,24 @@ def build_journey(
 
 def build_journey_set(
   treatments: (list, tuple),
-  value: int=1,
+  value: Number=1,
   *largs,
   **kwargs
-):
+) -> list:
   """
-  Build possible journeys from a set of treatment types
+  We needed a way to create combinations of treatments.
+  That's what we do here.
+
+  Provide a list of possible treatments, this returns all
+  possible journeys (ignoring order)
+
+  Args:
+    treatments (tuple): possible treatments
+    value (Number): numeric value of treatments
+      Note: at time of writing, this is mostly a placeholder
+  
+  Returns:
+    journeys (list): a list of possible journeys (ignoring order)
   """
 
   journeys = []

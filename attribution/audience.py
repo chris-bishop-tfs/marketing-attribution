@@ -17,6 +17,8 @@ class Member(abc.ABC):
   """
   Base class used to create respondents and the like
   
+  Args:
+    identifier (str): member identifier
   """
 
   identifier: str
@@ -40,15 +42,23 @@ class Respondent(Member):
   Journeys are perhaps best understood in the context of
   a marketing nurturing campaign. A journey is synonymous
   with the order of treament.
+
+  Args:
+    identifier (str): respondent ID
+    journey (tuple): ordered impressions
   """
 
   journey: tuple
 
   def to_pandas(self, *largs, **kwargs):
-    
+    """
+    Convert individual respondent to a Pandas Dataframe
+    """
+
     # Dump Journey
     data = self.journey.to_pandas(*largs, **kwargs)
 
+    # We'll use this below to order the output
     _cols = data.columns
 
     # Add respondent id
@@ -65,6 +75,16 @@ class Respondent(Member):
     return data
 
   def to_pyspark(self, spark=None, *largs, **kwargs):
+    """
+    Convert journey to a pyspark dataframe.
+
+    At time of writing, Bishop hacked this a bit and
+    used a pandas DF intermediate. That's not a great
+    approach moving forward, but will work to start.
+
+    Args:
+      spark (SparkSession): spark session
+    """
 
     if spark is None:
       # Spark session to use in computations
@@ -83,6 +103,12 @@ class Cohort(abc.ABC):
   """
   Bishop needed a way to organize a collection of members.
   A "cohort" is the start of such collections.
+
+  Classes inheriting Cohort will need to define a to_pandas
+  and to_pyspark method.
+
+  Args:
+    members (tuple): tuple of Member class types
   """
 
   # A tuple of members
@@ -105,7 +131,7 @@ class Audience(Cohort):
   An audience is a cohort of "treated" respondents.
   """
 
-  def _get_treatments(self):
+  def _get_treatments(self) -> tuple:
     """
     Extract treatment information from audience
     """
@@ -133,9 +159,17 @@ class Audience(Cohort):
 
     pass
 
-  def to_pyspark(self, format: str='wide', *largs, **kwargs):
+  def to_pyspark(
+    self,
+    format: str='wide',
+    *largs,
+    **kwargs
+  ):
     """
     Stitch journeys into a single pyspark dataframe
+
+    Args:
+      format (str): 'wide'|'long'.
     """
 
     # Convert all members to pyspark
@@ -197,7 +231,12 @@ class DicttoAudience(object):
   Keys are IDs, values are impressions
   """
   
-  def build(self, data, *largs, **kwargs):
+  def build(
+    self,
+    data: dict,
+    *largs,
+    **kwargs
+  ) -> Audience:
 
     # Gather respondents
     members = [

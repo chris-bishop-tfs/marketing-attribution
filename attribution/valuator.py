@@ -14,12 +14,20 @@ from .utils import union_all
 @define
 class Valuator(abc.ABC):
   """
+  The Valuator is the fundamental class used for all
+  subsequent attribution work.
+
+  Valuators measure treatment value or impact.
+
+  Several valuators are implemented, including:
+    - Last Touch
+    - First Touch
+    - Shapley
   """
 
   # Valuation is done based on an audience
   # Recall that an audience is a group of journeys
   # with variable assigned value
-  # audience = attrib()
   audience: Audience
 
   @abc.abstractmethod
@@ -33,6 +41,16 @@ class Valuator(abc.ABC):
   def _initialize_values(self, start_val: int=0) -> dict:
     """
     Initialize return value for each treatment
+
+    This is a useful for cumulative valuators, like last touch.
+
+    Args:
+      start_val (int): inital value
+    
+    Returns:
+      value (dict): dictionary of values
+        keys: treament
+        values: start_val
     """
 
     treatments = self.audience.treatments
@@ -80,9 +98,9 @@ class FirstTouchValuator(Valuator):
   Full value alloted to first impression
   """
 
-  def valuate_treatments(self):
+  def valuate_treatments(self) -> dict:
     """
-    Evaluate all treatments
+    Value of all treatments
     """
 
     treatment_value = self._initialize_values()
@@ -99,31 +117,70 @@ class FirstTouchValuator(Valuator):
     
     return treatment_value
 
+
 @define
 class ShapleyValuator(object):
   """
-  This valuator will break the standard valuator mold a bit
+  This valuator will break the standard valuator mold a bit.
+  Specifically, the valuator will leverage PySpark dataframes
+  rather than base python data types, such as dictionaries and
+  lists.
+
+  At the time of writing, we required an approach that would
+  scale horizontally to arbitrary size. We chose PySpark
+  as our solution. However, the same logic can be implemented
+  effectively using other packages (e.g., pandas) or base
+  python data structures if desired.
+
+  Shapley marginal contribution is a set (coalition)-based
+  attribution method. Please see references below for an
+  in-depth treatment.
+
+  Args:
+    journey_summary (pyspark): journey value summary
+    journey_map (pyspark): a map of each journey to its relevant,
+      coalition-based subsets. This is used to compute journey "worth".
+      Example: a journey of ('a', 'b') would be worth the sum of journeys:
+        ('a'), ('b'), and ('a', 'b').
+    treatments (tuple): possible treatments
+
+  References used:
+    https://towardsdatascience.com/data-driven-marketing-attribution-1a28d2e613a0
+    https://towardsdatascience.com/making-sense-of-shapley-values-dc67a8e4c5e8
+  
+  Note:
+    There appears to be a potential error in the first article.
+    This was raised as a comment by Bishop in April 2022.
+    At time of writing, there was not yet a response from the author.
   """
 
+  # Pyspark Dataframes
   journey_summary:  DataFrame
   journey_map: DataFrame
 
-  # Pass in treatment identifiers
+  # Treatment types
   treatments: tuple
 
+  @staticmethod
   def _compute_worth(
-    self,
     journey_summary: DataFrame,
     journey_map: DataFrame,
     val_col: str='value'
   ) -> DataFrame:
     """
     Compute worth of journeys as a total of itself and
-    all possible "sub journeys"
+    all possible "sub journeys".
 
-    Make this a method so we can leverage it elsewhere
+    Make this a method so we can leverage it elsewhere,
+    not just within this class
+
+    Args:
+      journey_sumary (pyspark): 
     """
 
+    # In words, we are combining value estimates
+    # for a journey and all its subsets. These
+    # are summed to estimate total value or "worth"
     journey_worth = (
       journey_summary.alias('a')
       .join(
@@ -149,10 +206,15 @@ class ShapleyValuator(object):
     val_col: str='value'
   ) -> Number:
     """
-    Valuate a single treatment type
+    Valuate an individual treatment using Shapley's
+    marginal contribution.
+
+    Args:
+      treatment (str): name of treatment to valuate
+      val_col (str): name of value column
     """
     
-    # Assign worth to each journey
+    # Compute worth of each journey
     journey_worth = (
       self
       ._compute_worth(
@@ -166,7 +228,7 @@ class ShapleyValuator(object):
         'journey_id'
       )
     )
-
+    
     # Replace existing value with "worth" estimate
     journeys_enriched = (
       self
@@ -181,7 +243,16 @@ class ShapleyValuator(object):
       )
     )
 
-    # We need to find all journeys that include the player of interest
+    # Treatment value is assessed by finding the summed (and weighted)
+    # marginal value of the treatment in question.
+
+    # To do this, we isolate journeys containing the treatment
+    # and compare the worth of these journeys to the same journeys
+    # without the treatment of interest.
+
+    # These are then weighted to account for combinatorics
+
+    # We need to find all journeys that include the treatment of interest
     treatment_journeys = (
       journeys_enriched
       # These are boolean values
@@ -195,6 +266,7 @@ class ShapleyValuator(object):
       )
     )
 
+    # Compare relevant journeys to their reference journeys
     reference_journeys = (
       journeys_enriched
       .select(
@@ -210,7 +282,8 @@ class ShapleyValuator(object):
       .drop(treatment)
     )
     
-    # Combine
+    # Combine journeys of interest and their reference journeys,
+    # compute weighted marginal value
     marginal_value = (
       treatment_journeys
       .join(
@@ -264,9 +337,11 @@ class ShapleyValuator(object):
 
     return treatment_value
 
-  def valuate_treatments(self):
+  def valuate_treatments(self) -> dict:
     """
-    Valuate all treatments
+    Valuate treatments and return value as a dictionary.
+
+    This is done to conform to outputs from other valuators
     """
 
     for i, t in enumerate(self.treatments):
@@ -284,7 +359,11 @@ class ShapleyValuator(object):
 @define
 class AudiencetoShapley(BaseBuilder):
   """
-  We need to instantiate a Shapley
+  The most common way we will instantiate a Shapley valuator
+  is from an audience. This builder does the work required.
+
+  Args:
+    audience (Audience): Audience object
   """
 
   audience: Audience
@@ -294,15 +373,21 @@ class AudiencetoShapley(BaseBuilder):
     Convert an audience to appropriate inputs for Shapley
     """
 
+    # Need all possible journeys (ignoring order)
+    # and the journey-to-journey value map
     journey_set = self._build_journey_set()
     jj_map = self._build_journey_map()
 
+    # Dump to pyspark since Shapley code above requires
+    # pyspark
     audience_data = self.audience.to_pyspark()  
   
     # Convert to boolean values to mesh with journey data
     treatments = self.audience.treatments
 
     # Convert to boolean values
+    # XXX I don't like converting data types internally like
+    # this, need a more intelligent way to control this.
     attribution_data = audience_data
 
     for i, t in enumerate(treatments):
@@ -331,6 +416,10 @@ class AudiencetoShapley(BaseBuilder):
       )
     )
 
+    # Let's repartition in a bit of an arbitrary way
+    # to improve execution time in ShapleyValuator
+    # XXX Revisit this.
+
     # Instantiate valuator
     return ShapleyValuator(
       journey_summary,
@@ -344,7 +433,16 @@ class AudiencetoShapley(BaseBuilder):
     journey_set: DataFrame
   ) -> DataFrame:
     """
-    Get value by journey_id
+    Create a data frame with an entry per journey,
+    including its identifier, treatment set, and
+    value.
+
+    Args:
+      attribution_data (DataFrame):
+      journey_set (DataFrame):
+    
+    Returns:
+      journey_summary (DataFrame)
     """
 
     # Journey value
@@ -423,7 +521,7 @@ class AudiencetoShapley(BaseBuilder):
     journey_set = (
       build_audience(data)
       .to_pyspark()
-      # "Value" here doesn't have any meaning
+      # "Value" here doesn't have any meaning.
       # Remove it.
       .drop(
         'value'
@@ -578,6 +676,8 @@ class AudiencetoValuator(BaseBuilder):
   ):
     """
     Build valuator from an audience
+
+    XXX This needs to be rewritten to follow builder format
     """
 
     if valuator_type == 'first_touch':

@@ -9,7 +9,7 @@ from pyspark.sql import DataFrame, Row
 from .audience import build_audience, Audience
 from .builder import BaseBuilder
 from .journey import build_journey_set
-from .utils import union_all
+
 
 @define
 class Valuator(abc.ABC):
@@ -642,7 +642,7 @@ class AudiencetoShapley(BaseBuilder):
         append_expression = _c
       else:
         append_expression = append_expression & (_c)
-    
+
     return append_expression
 
   def append_journey_id(

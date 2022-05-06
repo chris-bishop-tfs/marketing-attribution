@@ -698,7 +698,17 @@ class AudiencetoValuator(BaseBuilder):
       raise NotImplemented
 
     return valuator
-    
+
+# audience_valuator_builder = AudiencetoValuator()
+# audience_valuator_builder.register(('first_touch', ), FirstTouchValuator)
+# audience_valuator_builder.register(('last_touch', ), LastTouchValuator)
+
+# # Little dance to enable 
+# audience_valuator_builder.register(
+#   ('shapley', ),
+#   lambda x: AudiencetoShapley(x).build()
+# )
+
 
 class ValuatorBuilder(BaseBuilder):
   """

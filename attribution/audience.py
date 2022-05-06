@@ -3,7 +3,7 @@ Audience is comprised of one or more respondents.
 """
 import abc
 from attr import define, field, attrs, attrib
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, Row
 import pyspark.sql.functions as sf
 from pyspark.sql.window import Window
 
@@ -49,6 +49,25 @@ class Respondent(Member):
   """
 
   journey: tuple
+
+  def to_dict(self, *largs, **kwargs):
+    """
+    Return respondent as a dictionary
+    """
+
+    return dict(
+      identifier=self.identifier,
+      impressions=self.journey.impressions,
+      value=self.journey.value
+    )
+
+  def to_row(self, *largs, **kwargs):
+    """
+    Convert to a row
+    """
+    return Row(
+      **self.to_dict()
+    )
 
   def to_pandas(self, *largs, **kwargs):
     """
@@ -162,6 +181,7 @@ class Audience(Cohort):
   def to_pyspark(
     self,
     format: str='wide',
+    spark=None,
     *largs,
     **kwargs
   ):
@@ -176,11 +196,43 @@ class Audience(Cohort):
     #  Note that we'll initially pull this back as a 
     #  long data frame by default. This ensures dataframe
     #  compatibility.
-    audience = [
-      m.to_pyspark(*largs, **kwargs) for m in self.members
-    ]
+    # audience = [
+    #   m.to_pyspark(*largs, **kwargs) for m in self.members
+    # ]
 
-    audience_all = union_all(*audience)
+    if spark is None:
+      # Spark session to use in computations
+      spark = SparkSession.builder.getOrCreate()
+
+    row_data = []
+
+    for m in self.members:
+      row_data.append(m.to_row())
+
+    # Explode into proper format
+    audience_all = (
+      spark
+      .createDataFrame(
+        row_data
+      )
+      .withColumnRenamed(
+        'impressions',
+        'treatment'
+      )
+      .select(
+        'identifier',
+        sf.posexplode('treatment'),
+        'value'
+      )
+      .withColumnRenamed(
+        'pos',
+        'order'
+      )
+      .withColumnRenamed(
+        'col',
+        'treatment'
+      )
+    )
 
     if format == 'wide':
 
@@ -220,6 +272,15 @@ class Audience(Cohort):
           'identifier'
         )
       )
+
+    # Repartition based on identifier
+    audience_all = (
+      audience_all
+      .repartition(
+        20,
+        'identifier'
+      )
+    )
 
     return audience_all
 

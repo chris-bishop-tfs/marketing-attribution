@@ -382,6 +382,7 @@ class AudiencetoShapley(BaseBuilder):
     # pyspark
     audience_data = self.audience.to_pyspark()  
   
+    # Need to repartition 
     # Convert to boolean values to mesh with journey data
     treatments = self.audience.treatments
 

@@ -35,8 +35,8 @@ class Valuator(abc.ABC):
     """
     Return the value of each treatment
     """
-    
-    raise NotImplemented
+
+    raise NotImplementedError()
 
   def _initialize_values(self, start_val: int=0) -> dict:
     """
@@ -46,7 +46,7 @@ class Valuator(abc.ABC):
 
     Args:
       start_val (int): inital value
-    
+
     Returns:
       value (dict): dictionary of values
         keys: treament
@@ -213,7 +213,7 @@ class ShapleyValuator(object):
       treatment (str): name of treatment to valuate
       val_col (str): name of value column
     """
-    
+
     # Compute worth of each journey
     journey_worth = (
       self
@@ -228,7 +228,7 @@ class ShapleyValuator(object):
         'journey_id'
       )
     )
-    
+
     # Replace existing value with "worth" estimate
     journeys_enriched = (
       self
@@ -281,7 +281,7 @@ class ShapleyValuator(object):
       # We'll be joining below, so drop the player column to avoid duplicate names
       .drop(treatment)
     )
-    
+
     # Combine journeys of interest and their reference journeys,
     # compute weighted marginal value
     marginal_value = (
@@ -348,7 +348,7 @@ class ShapleyValuator(object):
 
       if i == 0:
         treatment_values = dict()
-      
+
       _v = self._valuate_treatment(t)
 
       treatment_values[t] = _v
@@ -381,7 +381,7 @@ class AudiencetoShapley(BaseBuilder):
     # Dump to pyspark since Shapley code above requires
     # pyspark
     audience_data = self.audience.to_pyspark()  
-  
+
     # Need to repartition 
     # Convert to boolean values to mesh with journey data
     treatments = self.audience.treatments
@@ -442,7 +442,7 @@ class AudiencetoShapley(BaseBuilder):
     Args:
       attribution_data (DataFrame):
       journey_set (DataFrame):
-    
+
     Returns:
       journey_summary (DataFrame)
     """
@@ -489,10 +489,10 @@ class AudiencetoShapley(BaseBuilder):
     treatments = self.audience.treatments
 
     for i, t in enumerate(treatments):
-      
+
       # Recall that missing treatments will be NULL
       _c = (sf.col(t).cast('integer'))
-      
+
       if i == 0:
         cardinality_expression = _c
       else:

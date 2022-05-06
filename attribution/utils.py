@@ -8,10 +8,10 @@ def union_all(*data_frames):
   """
   Union 2 or more PySpark data frames. All data frames
   must contain the same columns.
-  
+
   Args:
     data_frames (list)
-  
+
   Returns:
     all_data (pyspark.sql.DataFrame):
   """

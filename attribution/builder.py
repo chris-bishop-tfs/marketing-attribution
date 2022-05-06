@@ -10,7 +10,7 @@ class BaseBuilder(abc.ABC):
 
     handlers (dict): key-value pairs mapping keys to specifi
                      subclasses (e.g., DatabaseLocation)
-  
+
   Methods:
     register: Register a new subclass (handler)
     get_handler: Get handler (value) corresponding to a key
@@ -18,7 +18,7 @@ class BaseBuilder(abc.ABC):
 
   def __init__(self, *largs, **kwargs):
     super(abc.ABC, self).__init__()
-    
+
     self.handlers = dict()
 
   def register(self, handler_key, handler):
@@ -47,8 +47,8 @@ class BaseBuilder(abc.ABC):
   def build(self):
     """
     This is the custom piece of a builder.
-    
+
     It will returned a constructed object
     """
 
-    raise NotImplemented
+    raise NotImplementedError()

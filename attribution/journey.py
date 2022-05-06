@@ -38,16 +38,23 @@ class Journey(abc.ABC):
 
 	@property
 	def treatments(self):
+		"""
+		Unique treatments found in impressions
+		"""
 
 		return list(set(self.impressions))
 
 	@property
 	def cardinality(self):
+		"""
+		Cardinality of journey
+		"""
 
 		return len(self.treatments)
 
 	def to_dict(self):
 		"""
+		Convert journey to a dictionary
 		"""
 
 		return dict(
@@ -73,7 +80,7 @@ class Journey(abc.ABC):
 		# since we don't know hich treatments are potentially
 		# missing. Discourage using this directly.
 		elif format == 'wide':
-			
+
 			# Start with the long format and massage into wide
 			# format.
 			#
@@ -105,7 +112,7 @@ class Journey(abc.ABC):
 
 		else:
 
-			raise NotImplemented
+			raise NotImplementedError()
 
 		return data
 
@@ -183,7 +190,7 @@ def build_journey_set(
 		treatments (tuple): possible treatments
 		value (Number): numeric value of treatments
 			Note: at time of writing, this is mostly a placeholder
-	
+
 	Returns:
 		journeys (list): a list of possible journeys (ignoring order)
 	"""

@@ -16,7 +16,7 @@ from .journey import build_journey
 class Member(abc.ABC):
   """
   Base class used to create respondents and the like
-  
+
   Args:
     identifier (str): member identifier
   """
@@ -25,11 +25,18 @@ class Member(abc.ABC):
 
   @abc.abstractmethod
   def to_pandas(self):
+    """
+    Convert member to a pandas data frame
+    """
+
     # Export individual members to pandas
     pass
 
   @abc.abstractmethod
   def to_pyspark(self):
+    """
+    Convert to pyspark dataframe
+    """
     # Dump individual member to spark
     pass
 
@@ -115,7 +122,7 @@ class Respondent(Member):
     )
 
     return data
-    
+
 
 @define
 class Cohort(abc.ABC):
@@ -142,7 +149,7 @@ class Cohort(abc.ABC):
   def to_pyspark(self, spark=None):
     # Export data to spark
     raise NotImplemented
-  
+
 
 @define
 class Audience(Cohort):
@@ -159,7 +166,7 @@ class Audience(Cohort):
 
     for m in self.members:
       treatments = treatments | set(m.journey.impressions)
-    
+
     treatments = tuple(treatments)
 
     return treatments
@@ -291,7 +298,7 @@ class DicttoAudience(object):
 
   Keys are IDs, values are impressions
   """
-  
+
   def build(
     self,
     data: dict,

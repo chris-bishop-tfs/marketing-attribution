@@ -665,6 +665,7 @@ class AudiencetoShapley(BaseBuilder):
 
 class AudiencetoValuator(BaseBuilder):
   """
+  Convert an audience to a Valuator.
   """
 
   def build(
@@ -673,49 +674,42 @@ class AudiencetoValuator(BaseBuilder):
     valuator_type: str,
     *largs,
     **kwargs
-  ):
+  ) -> Valuator:
     """
     Build valuator from an audience
-
-    XXX This needs to be rewritten to follow builder format
     """
 
-    if valuator_type == 'first_touch':
+    builder_key = (valuator_type, )
 
-      valuator = FirstTouchValuator(audience, *largs, **kwargs)
-    
-    elif valuator_type == 'last_touch':
+    builder = self.get_handler(builder_key)
 
-      valuator = LastTouchValuator(audience, *largs, **kwargs)
-    
-    elif valuator_type == 'shapley':
-
-      # Takes a little extra work to get the Shapley valuator
-      valuator = AudiencetoShapley(audience).build()
-
-    else:
-
-      raise NotImplemented
+    valuator = builder(audience)
 
     return valuator
 
-# audience_valuator_builder = AudiencetoValuator()
-# audience_valuator_builder.register(('first_touch', ), FirstTouchValuator)
-# audience_valuator_builder.register(('last_touch', ), LastTouchValuator)
 
-# # Little dance to enable 
-# audience_valuator_builder.register(
-#   ('shapley', ),
-#   lambda x: AudiencetoShapley(x).build()
-# )
+audience_valuator_builder = AudiencetoValuator()
+audience_valuator_builder.register(('last_touch', ), LastTouchValuator)
+audience_valuator_builder.register(('first_touch', ), FirstTouchValuator)
+
+# Need a little massaging to shoehorn AudiencetoShapley into
+# the same motif.
+audience_valuator_builder.register(
+  ('shapley', ),
+  lambda x: AudiencetoShapley(x).build()
+)
 
 
 class ValuatorBuilder(BaseBuilder):
   """
-  Build valuators
+  Build valuators from various object types
+
+  Note: provided data is converted to an Audience
+  class. If you have a data type that cannot be
+  converted, add the functionality you need to Audience
   """
 
-  def build(self, data, *largs, **kwargs):
+  def build(self, data, *largs, **kwargs) -> Valuator:
     """
     Build based on type
     """
@@ -734,7 +728,7 @@ class ValuatorBuilder(BaseBuilder):
     return valuator
 
 valuator_builder = ValuatorBuilder()
-valuator_builder.register(('Audience', ), AudiencetoValuator())
+valuator_builder.register(('Audience', ), audience_valuator_builder)
 
 def build_valuator(data, valuator_type, *largs, **kwargs):
 

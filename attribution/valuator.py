@@ -546,6 +546,12 @@ class AudiencetoShapley(BaseBuilder):
         'cardinality',
         self._cardinality_expression
       )
+      # Repartition
+      # XXX I hate that I'm hard-coding things here, but it's a start
+      .repartition(
+        20,
+        'identifier'
+      )
     )
 
     return journey_set
@@ -558,9 +564,9 @@ class AudiencetoShapley(BaseBuilder):
     # Journey sets
     journey_set = self._build_journey_set()
 
-    # Repartition
-    # XXX Fix hard-coded value
-    journey_set = journey_set.repartition(20, 'identifier')
+    # # Repartition
+    # # XXX Fix hard-coded value
+    # journey_set = journey_set.repartition(20, 'identifier')
 
     # Map individual journeys 
     jj_map = (
@@ -730,6 +736,10 @@ class ValuatorBuilder(BaseBuilder):
 valuator_builder = ValuatorBuilder()
 valuator_builder.register(('Audience', ), audience_valuator_builder)
 
-def build_valuator(data, valuator_type, *largs, **kwargs):
+def build_valuator(data, valuator_type, *largs, **kwargs) -> Valuator:
+  """
+  This is the top-level function folks should interact with most
+  commonly.
+  """
 
   return valuator_builder.build(data, valuator_type, *largs, **kwargs)

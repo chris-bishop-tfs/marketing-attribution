@@ -22,7 +22,8 @@ class Journey(abc.ABC):
   """
 
   # Treatment order
-  impressions: tuple
+  #  Tuples cause some issues with pyspark so stick with lists for now
+  impressions: list
 
   # Total value of journey (e.g., sales made, conversions, etc.)
   value: Number
@@ -43,6 +44,7 @@ class Journey(abc.ABC):
   def to_dict(self):
     """
     """
+
     return dict(
       impressions=self.impressions,
       value=self.value
@@ -117,7 +119,9 @@ class JourneyBuilder(BaseBuilder):
 
   def build(
     self,
-    impressions: tuple,
+    # Tuples cause issues with pyspark down the line,
+    # so create list here
+    impressions: list,
     value: int=0
   ) -> Journey:
     """
@@ -141,7 +145,7 @@ journey_builder = JourneyBuilder()
 journey_builder.register(('journey', ), Journey)
 
 def build_journey(
-  impressions: tuple,
+  impressions: list,
   value: Number,
   *largs,
   **kwargs
@@ -188,7 +192,7 @@ def build_journey_set(
     # Build a journey from all set combinations
     journeys.extend(
       map(
-        lambda x: build_journey(x, value, *largs, **kwargs),
+        lambda x: build_journey(list(x), value, *largs, **kwargs),
         combinations(treatments, i)
       )
     )

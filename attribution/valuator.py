@@ -5,7 +5,7 @@ import abc
 from numbers import Number
 from attr import define
 import pyspark.sql.functions as sf
-from pyspark.sql import DataFrame
+from pyspark.sql import DataFrame, Row
 from .audience import build_audience, Audience
 from .builder import BaseBuilder
 from .journey import build_journey_set
@@ -405,7 +405,8 @@ class AudiencetoShapley(BaseBuilder):
     attribution_data = (
       self
       .append_journey_id(
-        attribution_data
+        attribution_data,
+        journey_set
       )
     )
 
@@ -516,7 +517,11 @@ class AudiencetoShapley(BaseBuilder):
         data = list()
       
       # Append a sequential identifier
-      _data = dict(identifier=i, **j.to_dict())
+      _data = dict(
+        identifier=i,
+        **j.to_dict()
+      )
+
       data.append(_data)
 
     journey_set = (
@@ -643,6 +648,7 @@ class AudiencetoShapley(BaseBuilder):
   def append_journey_id(
     self,
     data: DataFrame,
+    journey_set: DataFrame,
     *largs,
     **kwargs
   ) -> DataFrame:
@@ -652,12 +658,10 @@ class AudiencetoShapley(BaseBuilder):
     External data set must have appropriately labeled 
     """
 
-    journey_sets = self._build_journey_set()
-
     data_enriched = (
       data.alias('a')
       .join(
-        journey_sets.alias('b'),
+        journey_set.alias('b'),
         on=self._append_journeys_exp,
         how='left'
       )

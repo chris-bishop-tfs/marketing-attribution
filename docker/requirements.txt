@@ -1,0 +1,2 @@
+attrs
+pyspark==3.2.1

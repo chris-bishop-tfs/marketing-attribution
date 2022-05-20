@@ -20,12 +20,17 @@ pip install git+https://github.com/chris-bishop-tfs/marketing-attribution.git
 
 Terminology here loosely follows marketing conventions.
 
-`Treatment`: A single manipulation, such as a phone call or a digital touch point
-`Impression`: A treatment applied to a respondent.
-`Journey`: A sequence of impressions served to a respondent
-`Respondent` A treated element (e.g., customer) and its associated impressions
-`Audience`: A collection of respondents
-`Valuator`: A method through which value is attributed to one or more `treatments`
+- `Treatment`: A single manipulation, such as a phone call or a digital touch point
+
+- `Impression`: A treatment applied to a respondent
+
+- `Journey`: A sequence of impressions served to a respondent
+
+- `Respondent` A treated element (e.g., customer) and its associated impressions
+
+- `Audience`: A collection of respondents
+
+- `Valuator`: A method through which value is attributed to one or more `treatments`
 
 ## Creating an Demonstrative Data Set
 
